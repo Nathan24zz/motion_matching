@@ -1,6 +1,6 @@
 from setuptools import setup
 
-package_name = 'motion-matching'
+package_name = 'motion_matching'
 
 setup(
     name=package_name,
