@@ -1,5 +1,4 @@
 import rclpy
-from std_msgs.msg import String
 from tachimawari_interfaces.msg import SetJoints
 from tachimawari_interfaces.msg import Joint
 from typing import List
