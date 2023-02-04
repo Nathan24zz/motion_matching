@@ -1,4 +1,5 @@
 import rclpy
+from rclpy.node import Node
 
 from motion_matching.publisher import MotionMatchingPublisher
 
@@ -6,11 +7,11 @@ from motion_matching.publisher import MotionMatchingPublisher
 def main(args=None):
     rclpy.init(args=args)
 
-    node = rclpy.Node('motion_matching_node')
+    node = Node('motion_matching_node')
 
     minimal_publisher = MotionMatchingPublisher(node)
 
-    rclpy.spin(minimal_publisher)
+    rclpy.spin(minimal_publisher.node)
 
     minimal_publisher.destroy_node()
     rclpy.shutdown()
