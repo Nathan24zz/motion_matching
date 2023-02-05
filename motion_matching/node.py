@@ -45,6 +45,9 @@ class MotionMatchingNode:
 
         return angle
 
+    def clamp_value(self, val, bottom, top):
+        return min(top, max(val, bottom))
+
     def timer_callback(self):
         self.node.get_logger().info('Counting')
 
@@ -90,6 +93,11 @@ class MotionMatchingNode:
                 # adjust to real robot's offset
                 right_angle -= 45
                 left_angle += 45
+
+                right_angle = self.clamp_value(right_angle, -30, 80)
+                left_angle = self.clamp_value(left_angle, -80, 30)
+                bottom_right_angle = self.clamp_value(bottom_right_angle, -120, 10)
+                bottom_left_angle = self.clamp_value(bottom_left_angle, -10, 120)
 
                 print('=================================================')
                 print('body_angle', body_angle)
