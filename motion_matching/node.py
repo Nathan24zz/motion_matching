@@ -83,6 +83,14 @@ class MotionMatchingNode:
                 bottom_left_angle = self.calculate_angle(
                     13, 15, True) - left_angle
 
+                # adjust to real robot's state
+                bottom_right_angle *= -1
+                left_angle *= -1
+
+                # adjust to real robot's offset
+                right_angle -= 45
+                left_angle += 45
+
                 print('=================================================')
                 print('body_angle', body_angle)
                 print('right_angle', right_angle)
