@@ -22,6 +22,12 @@ class MotionMatchingNode:
         self.image_width = 0
         self.results = 0
 
+        self.speed = 0.1
+        self.right_angle = 0.0
+        self.left_angle = 0.0
+        self.bottom_right_angle = 0.0
+        self.bottom_left_angle = 0.0
+
         self.init_joints()
 
     def calculate_angle(self, i1, i2, inverse=False):
@@ -47,6 +53,9 @@ class MotionMatchingNode:
 
     def clamp_value(self, val, bottom, top):
         return min(top, max(val, bottom))
+
+    def get_reduced_value(self, current, target):
+        return current + ((target - current) * self.speed)
 
     def timer_callback(self):
         self.node.get_logger().info('Counting')
@@ -94,17 +103,26 @@ class MotionMatchingNode:
                 right_angle -= 45
                 left_angle += 45
 
-                right_angle = self.clamp_value(right_angle, -30, 80)
-                left_angle = self.clamp_value(left_angle, -80, 30)
+                right_angle = self.clamp_value(right_angle, -30, 100)
+                left_angle = self.clamp_value(left_angle, -100, 30)
                 bottom_right_angle = self.clamp_value(
                     bottom_right_angle, -120, 10)
                 bottom_left_angle = self.clamp_value(
                     bottom_left_angle, -10, 120)
 
-                self.set_joint(3, right_angle)
-                self.set_joint(4, left_angle)
-                self.set_joint(5, bottom_right_angle)
-                self.set_joint(6, bottom_left_angle)
+                self.right_angle = self.get_reduced_value(
+                    self.right_angle, right_angle)
+                self.left_angle = self.get_reduced_value(
+                    self.left_angle, left_angle)
+                self.bottom_right_angle = self.get_reduced_value(
+                    self.bottom_right_angle, bottom_right_angle)
+                self.bottom_left_angle = self.get_reduced_value(
+                    self.bottom_left_angle, bottom_left_angle)
+
+                self.set_joint(3, self.right_angle)
+                self.set_joint(4, self.left_angle)
+                self.set_joint(5, self.bottom_right_angle)
+                self.set_joint(6, self.bottom_left_angle)
 
                 set_joints = SetJoints()
                 set_joints.joints = self.joints
@@ -118,20 +136,20 @@ class MotionMatchingNode:
                 print('bottom_left_angle', bottom_left_angle)
 
                 # Draw the pose annotation on the image.
-                # image.flags.writeable = True
-                # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-                # mp_drawing.draw_landmarks(
-                #     image,
-                #     self.results.pose_landmarks,
-                #     mp_pose.POSE_CONNECTIONS,
-                #     landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
+                image.flags.writeable = True
+                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                mp_drawing.draw_landmarks(
+                    image,
+                    self.results.pose_landmarks,
+                    mp_pose.POSE_CONNECTIONS,
+                    landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
 
                 # Flip the image horizontally for a selfie-view display.
-                # cv2.imshow('MediaPipe Pose', image)
+                cv2.imshow('MediaPipe Pose', image)
                 # cv2.imshow('MediaPipe Pose', cv2.flip(image, 1))
 
-                # if cv2.waitKey(5) & 0xFF == 27:
-                #     break
+                if cv2.waitKey(5) & 0xFF == 27:
+                    break
 
         cap.release()
 
