@@ -18,7 +18,32 @@ class MotionMatchingNode:
         timer_period = 0.5
         self.timer = self.node.create_timer(timer_period, self.timer_callback)
 
+        self.image_height = 0
+        self.image_width = 0
+        self.results = 0
+
         self.init_joints()
+
+    def calculate_angle(self, i1, i2, inverse=False):
+        x1 = self.results.pose_landmarks.landmark[i1].x * self.image_width
+        y1 = self.results.pose_landmarks.landmark[i1].y * self.image_height
+        x2 = self.results.pose_landmarks.landmark[i2].x * self.image_width
+        y2 = self.results.pose_landmarks.landmark[i2].y * self.image_height
+
+        angle = (math.atan(
+            (x2 - x1) / (y2 - y1))) * 180 / math.pi
+
+        if (angle < 0):
+            angle *= -1
+        else:
+            angle = 180 - angle
+
+        angle = angle if not inverse else (180 - angle)
+
+        if (x2 > x1 and not inverse) or (x2 < x1 and inverse):
+            angle += 180
+
+        return angle
 
     def timer_callback(self):
         self.node.get_logger().info('Counting')
@@ -30,58 +55,56 @@ class MotionMatchingNode:
         # For webcam input:
         cap = cv2.VideoCapture(0)
         with mp_pose.Pose(
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5) as pose:
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5) as pose:
+
             while cap.isOpened():
                 success, image = cap.read()
+
                 if not success:
                     print("Ignoring empty camera frame.")
-                    # If loading a video, use 'break' instead of 'continue'.
                     continue
 
                 # To improve performance, optionally mark the image as not writeable to
                 # pass by reference.
                 image.flags.writeable = False
                 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                image_height, image_width, _ = image.shape
-                results = pose.process(image)
-                
-                if not results.pose_landmarks:
+                self.image_height, self.image_width, _ = image.shape
+                self.results = pose.process(image)
+
+                if not self.results.pose_landmarks:
                     continue
 
-                left_shoulder_x = results.pose_landmarks.landmark[11].x * image_width
-                left_shoulder_y = results.pose_landmarks.landmark[11].y * image_height
-                right_shoulder_x = results.pose_landmarks.landmark[12].x * image_width
-                right_shoulder_y = results.pose_landmarks.landmark[12].y * image_height
-                right_elbow_x = results.pose_landmarks.landmark[14].x * image_width
-                right_elbow_y = results.pose_landmarks.landmark[14].y * image_height
-                # sudut = math.acos((right_elbow_x * right_shoulder_x + right_elbow_y * right_shoulder_y) / (math.sqrt(right_elbow_x**2 + right_elbow_y**2) * math.sqrt(right_shoulder_x**2 + right_shoulder_y**2)))
-                sudut = math.atan((right_elbow_x - right_shoulder_x) / (right_elbow_y - right_shoulder_y))
+                body_angle = 90 - self.calculate_angle(11, 12)
+                right_angle = self.calculate_angle(12, 14) + body_angle
+                bottom_right_angle = self.calculate_angle(
+                    14, 16) - right_angle
+                left_angle = self.calculate_angle(11, 13, True) - body_angle
+                bottom_left_angle = self.calculate_angle(
+                    13, 15, True) - left_angle
 
-                print('left_shoulder_x: ', left_shoulder_x)
-                print('left_shoulder_y: ', left_shoulder_y)
-                print('right_shoulder_x: ', right_shoulder_x)
-                print('right_shoulder_y:', right_shoulder_y)
-                print('right_elbow_x: ', right_elbow_x)
-                print('right_elbow_y:', right_elbow_y)
-                print('====================')
-                print('sudut: ', sudut*180/math.pi)
+                print('=================================================')
+                print('body_angle', body_angle)
+                print('right_angle', right_angle)
+                print('bottom_right_angle', bottom_right_angle)
+                print('left_angle', left_angle)
+                print('bottom_left_angle', bottom_left_angle)
+
                 # Draw the pose annotation on the image.
                 image.flags.writeable = True
                 image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
                 mp_drawing.draw_landmarks(
                     image,
-                    results.pose_landmarks,
+                    self.results.pose_landmarks,
                     mp_pose.POSE_CONNECTIONS,
                     landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
                 # Flip the image horizontally for a selfie-view display.
-                cv2.imshow('MediaPipe Pose', cv2.flip(image, 1))
+                cv2.imshow('MediaPipe Pose', image)
                 # cv2.imshow('MediaPipe Pose', image)
 
                 if cv2.waitKey(5) & 0xFF == 27:
                     break
         cap.release()
-
 
     def init_joints(self):
         for i in range(3, 7):
