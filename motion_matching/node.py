@@ -1,11 +1,11 @@
-import rclpy
+from rclpy.node import Node
 from tachimawari_interfaces.msg import SetJoints
 from tachimawari_interfaces.msg import Joint
 from typing import List
 
 
-class MotionMatchingPublisher:
-    def __init__(self, node: rclpy.Node):
+class MotionMatchingNode:
+    def __init__(self, node: Node):
         self.node = node
 
         self.joints: List[Joint] = []
