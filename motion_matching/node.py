@@ -96,8 +96,19 @@ class MotionMatchingNode:
 
                 right_angle = self.clamp_value(right_angle, -30, 80)
                 left_angle = self.clamp_value(left_angle, -80, 30)
-                bottom_right_angle = self.clamp_value(bottom_right_angle, -120, 10)
-                bottom_left_angle = self.clamp_value(bottom_left_angle, -10, 120)
+                bottom_right_angle = self.clamp_value(
+                    bottom_right_angle, -120, 10)
+                bottom_left_angle = self.clamp_value(
+                    bottom_left_angle, -10, 120)
+
+                self.set_joint(3, right_angle)
+                self.set_joint(4, left_angle)
+                self.set_joint(5, bottom_right_angle)
+                self.set_joint(6, bottom_left_angle)
+
+                set_joints = SetJoints()
+                set_joints.joints = self.joints
+                self.publisher.publish(set_joints)
 
                 print('=================================================')
                 print('body_angle', body_angle)
@@ -107,19 +118,21 @@ class MotionMatchingNode:
                 print('bottom_left_angle', bottom_left_angle)
 
                 # Draw the pose annotation on the image.
-                image.flags.writeable = True
-                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-                mp_drawing.draw_landmarks(
-                    image,
-                    self.results.pose_landmarks,
-                    mp_pose.POSE_CONNECTIONS,
-                    landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
-                # Flip the image horizontally for a selfie-view display.
-                cv2.imshow('MediaPipe Pose', image)
-                # cv2.imshow('MediaPipe Pose', image)
+                # image.flags.writeable = True
+                # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                # mp_drawing.draw_landmarks(
+                #     image,
+                #     self.results.pose_landmarks,
+                #     mp_pose.POSE_CONNECTIONS,
+                #     landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
 
-                if cv2.waitKey(5) & 0xFF == 27:
-                    break
+                # Flip the image horizontally for a selfie-view display.
+                # cv2.imshow('MediaPipe Pose', image)
+                # cv2.imshow('MediaPipe Pose', cv2.flip(image, 1))
+
+                # if cv2.waitKey(5) & 0xFF == 27:
+                #     break
+
         cap.release()
 
     def init_joints(self):
@@ -133,4 +146,4 @@ class MotionMatchingNode:
     def set_joint(self, id, position):
         for joint in self.joints:
             if joint.id == id:
-                joint.position = position
+                joint.position = float(position)
