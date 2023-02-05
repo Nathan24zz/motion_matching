@@ -135,21 +135,21 @@ class MotionMatchingNode:
                 print('left_angle', left_angle)
                 print('bottom_left_angle', bottom_left_angle)
 
-                # Draw the pose annotation on the image.
-                image.flags.writeable = True
-                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-                mp_drawing.draw_landmarks(
-                    image,
-                    self.results.pose_landmarks,
-                    mp_pose.POSE_CONNECTIONS,
-                    landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
+                # # Draw the pose annotation on the image.
+                # image.flags.writeable = True
+                # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                # mp_drawing.draw_landmarks(
+                #     image,
+                #     self.results.pose_landmarks,
+                #     mp_pose.POSE_CONNECTIONS,
+                #     landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
 
-                # Flip the image horizontally for a selfie-view display.
-                cv2.imshow('MediaPipe Pose', image)
-                # cv2.imshow('MediaPipe Pose', cv2.flip(image, 1))
+                # # Flip the image horizontally for a selfie-view display.
+                # cv2.imshow('MediaPipe Pose', image)
+                # # cv2.imshow('MediaPipe Pose', cv2.flip(image, 1))
 
-                if cv2.waitKey(5) & 0xFF == 27:
-                    break
+                # if cv2.waitKey(5) & 0xFF == 27:
+                #     break
 
         cap.release()
 
