@@ -17,6 +17,7 @@ class MotionMatchingNode:
         self.node = node
         self.first = True
         self.sio = sio
+        self.pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
         self.joints: List[Joint] = []
         self.publisher = self.node.create_publisher(
@@ -70,104 +71,85 @@ class MotionMatchingNode:
 
         if self.first:
             # For webcam input:
-            print('sekali')
             self.cap = cv2.VideoCapture(0)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             self.first = False
 
-        with mp_pose.Pose(
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5) as pose:
+        success, image = self.cap.read()
 
-            # while cap.isOpened():
-            success, image = self.cap.read()
+        if not success:
+            print("Ignoring empty camera frame.")
+        else:
+            # To improve performance, optionally mark the image as not writeable to
+            # pass by reference.
+            image.flags.writeable = False
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            self.image_height, self.image_width, _ = image.shape
+            self.results = self.pose.process(image)
+            # Draw the pose annotation on the image
+            mp_drawing.draw_landmarks(
+                image,
+                self.results.pose_landmarks,
+                mp_pose.POSE_CONNECTIONS,
+                landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
+            image = cv2.resize(image, (320, 240))
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-            if not success:
-                print("Ignoring empty camera frame.")
-            else:
-                # To improve performance, optionally mark the image as not writeable to
-                # pass by reference.
-                image.flags.writeable = False
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                self.image_height, self.image_width, _ = image.shape
-                self.results = pose.process(image)
-                # Draw the pose annotation on the image
-                mp_drawing.draw_landmarks(
-                    image,
-                    self.results.pose_landmarks,
-                    mp_pose.POSE_CONNECTIONS,
-                    landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
-                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
-                # encode and send to client
-                _, image = cv2.imencode('.jpg', image)    # from image to binary buffer
-                data = base64.b64encode(image)            # convert to base64 format
-                self.sio.emit('image', data)
+            # encode and send to client
+            _, image = cv2.imencode('.jpg', image)    # from image to binary buffer
+            data = base64.b64encode(image)            # convert to base64 format
+            self.sio.emit('image', data)
 
 
-                if self.results.pose_landmarks:
-                    body_angle = 90 - self.calculate_angle(11, 12)
-                    right_angle = self.calculate_angle(12, 14) + body_angle
-                    bottom_right_angle = self.calculate_angle(
-                        14, 16) - right_angle
-                    left_angle = self.calculate_angle(11, 13, True) - body_angle
-                    bottom_left_angle = self.calculate_angle(
-                        13, 15, True) - left_angle
+            if self.results.pose_landmarks:
+                body_angle = 90 - self.calculate_angle(11, 12)
+                right_angle = self.calculate_angle(12, 14) + body_angle
+                bottom_right_angle = self.calculate_angle(
+                    14, 16) - right_angle
+                left_angle = self.calculate_angle(11, 13, True) - body_angle
+                bottom_left_angle = self.calculate_angle(
+                    13, 15, True) - left_angle
 
-                    # adjust to real robot's state
-                    bottom_right_angle *= -1
-                    left_angle *= -1
+                # adjust to real robot's state
+                bottom_right_angle *= -1
+                left_angle *= -1
 
-                    # adjust to real robot's offset
-                    right_angle -= 45
-                    left_angle += 45
+                # adjust to real robot's offset
+                right_angle -= 45
+                left_angle += 45
 
-                    right_angle = self.clamp_value(right_angle, -30, 100)
-                    left_angle = self.clamp_value(left_angle, -100, 30)
-                    bottom_right_angle = self.clamp_value(
-                        bottom_right_angle, -120, 10)
-                    bottom_left_angle = self.clamp_value(
-                        bottom_left_angle, -10, 120)
+                right_angle = self.clamp_value(right_angle, -30, 100)
+                left_angle = self.clamp_value(left_angle, -100, 30)
+                bottom_right_angle = self.clamp_value(
+                    bottom_right_angle, -120, 10)
+                bottom_left_angle = self.clamp_value(
+                    bottom_left_angle, -10, 120)
 
-                    self.right_angle = self.get_reduced_value(
-                        self.right_angle, right_angle)
-                    self.left_angle = self.get_reduced_value(
-                        self.left_angle, left_angle)
-                    self.bottom_right_angle = self.get_reduced_value(
-                        self.bottom_right_angle, bottom_right_angle)
-                    self.bottom_left_angle = self.get_reduced_value(
-                        self.bottom_left_angle, bottom_left_angle)
+                self.right_angle = self.get_reduced_value(
+                    self.right_angle, right_angle)
+                self.left_angle = self.get_reduced_value(
+                    self.left_angle, left_angle)
+                self.bottom_right_angle = self.get_reduced_value(
+                    self.bottom_right_angle, bottom_right_angle)
+                self.bottom_left_angle = self.get_reduced_value(
+                    self.bottom_left_angle, bottom_left_angle)
 
-                    self.set_joint(3, self.right_angle)
-                    self.set_joint(4, self.left_angle)
-                    self.set_joint(5, self.bottom_right_angle)
-                    self.set_joint(6, self.bottom_left_angle)
+                self.set_joint(3, self.right_angle)
+                self.set_joint(4, self.left_angle)
+                self.set_joint(5, self.bottom_right_angle)
+                self.set_joint(6, self.bottom_left_angle)
 
-                    set_joints = SetJoints()
-                    set_joints.joints = self.joints
-                    self.publisher.publish(set_joints)
+                set_joints = SetJoints()
+                set_joints.joints = self.joints
+                self.publisher.publish(set_joints)
 
-                    print('=================================================')
-                    print('body_angle', body_angle)
-                    print('right_angle', right_angle)
-                    print('bottom_right_angle', bottom_right_angle)
-                    print('left_angle', left_angle)
-                    print('bottom_left_angle', bottom_left_angle)
-
-                    # # Draw the pose annotation on the image.
-                    # image.flags.writeable = True
-                    # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-                    # mp_drawing.draw_landmarks(
-                    #     image,
-                    #     self.results.pose_landmarks,
-                    #     mp_pose.POSE_CONNECTIONS,
-                    #     landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
-
-                    # # Flip the image horizontally for a selfie-view display.
-                    # cv2.imshow('MediaPipe Pose', image)
-                    # # cv2.imshow('MediaPipe Pose', cv2.flip(image, 1))
-
-                    # if cv2.waitKey(5) & 0xFF == 27:
-                    #     break
+                print('=================================================')
+                print('body_angle', body_angle)
+                print('right_angle', right_angle)
+                print('bottom_right_angle', bottom_right_angle)
+                print('left_angle', left_angle)
+                print('bottom_left_angle', bottom_left_angle)
 
         # cap.release()
 

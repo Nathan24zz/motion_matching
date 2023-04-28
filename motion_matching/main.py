@@ -14,6 +14,19 @@ app = socketio.WSGIApp(sio, static_files={
     '/': {'content_type': 'text/html', 'filename': 'index.html'}
 })
 
+@sio.on('connect')
+def connect(sid, environ):
+    print('connect ', sid)
+
+@sio.on('disconnect')
+def disconnect(sid):
+    print('disconnect ', sid)
+
+@sio.on('state_recording')
+def stateRecoring(sid, data):
+    print('---state_recording ', data)
+    # record join robot and save to json
+
 def server():
     eventlet.wsgi.server(eventlet.listen(('', 5000)), app)
 
