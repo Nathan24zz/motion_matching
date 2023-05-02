@@ -1,7 +1,9 @@
 import base64
 import cv2
+import json
 import math
 import mediapipe as mp
+from motion_matching.json_utils import joint_id_by_name
 from rclpy.node import Node, MsgType
 from tachimawari_interfaces.msg import SetJoints, Joint, CurrentJoints
 from typing import List
@@ -40,14 +42,27 @@ class MotionMatchingNode:
         self.bottom_right_angle = 0.0
         self.bottom_left_angle = 0.0
 
+        # STATE in website
+        self.state = ""
         self.state_recording = False
+
+        # JSON config for aruku
+        self.json_dict = {
+            "name": "Motion Final Project",
+            "next": "motion_fp",
+            "poses": [],
+            "start_delay": 0,
+            "stop_delay": 0
+        }
+        self.count = 0
 
         self.init_joints()
 
-        def state_recording(sid, data):
-            self.state_recording = data
-            print('--state_recording-- ', self.state_recording)
+        # Handler client data
+        def state_recording(sid, data): self.state_recording = data
+        def state(sid, data): self.state = data
         self.sio.on('state_recording', handler=state_recording)
+        self.sio.on('state', handler=state)
 
     def calculate_angle(self, i1, i2, inverse=False):
         x1 = self.results.pose_landmarks.landmark[i1].x * self.image_width
@@ -81,8 +96,34 @@ class MotionMatchingNode:
             self.current_joints = message
 
     def timer_save_motion(self):
-        self.node.get_logger().info('-----')
+        self.node.get_logger().info('Save Motion')
+        print('--STATE-- ', self.state)
+        print('--state_recording-- ', self.state_recording)
+
         # record join robot and save to json
+        # if len(self.joints) and self.state == 'recording':
+        if len(self.current_joints) and self.state == 'recording':
+            if self.state_recording:
+                print('------RECORD----')
+                joints = {}
+                name = f"motion_{self.count}"
+                pause = 0
+                # TODO: need to adjust speed when trying on real robot
+                speed = 0.01
+                for joint in self.joints:
+                    joints[joint_id_by_name[joint.id]] = joint.position
+
+                self.json_dict["poses"].append(joints)
+                self.json_dict["poses"].append(name)
+                self.json_dict["poses"].append(pause)
+                self.json_dict["poses"].append(speed)
+                self.count += 1
+            else:
+                print('------SAVE----')
+                json_object = json.dumps(self.json_dict, indent=4)
+                # print('json_object;', json_object)
+                with open("motion_fp.json", "w") as outfile:
+                    outfile.write(json_object)
 
     def timer_callback(self):
         self.node.get_logger().info('Counting')
@@ -171,9 +212,8 @@ class MotionMatchingNode:
                 print('left_angle', left_angle)
                 print('bottom_left_angle', bottom_left_angle)
 
-        # cap.release()
-
     def init_joints(self):
+        # for i in range(1, 21):
         for i in range(3, 7):
             joint = Joint()
             joint.id = i
