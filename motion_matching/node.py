@@ -16,7 +16,8 @@ mp_pose = mp.solutions.pose
 class MotionMatchingNode:
     def __init__(self, node: Node, sio):
         self.node = node
-        self.first = True
+        self.first_time_camera_human = True
+        self.first_time_camera_robot = True
         self.sio = sio
         self.pose = mp_pose.Pose(
             min_detection_confidence=0.5, min_tracking_confidence=0.5)
@@ -28,7 +29,7 @@ class MotionMatchingNode:
         self.joint_subcriber = self.node.create_subscription(
             CurrentJoints, '/joint/current_joints', self.listener_callback, 10)
 
-        timer_period = 0.1
+        timer_period = 0.15
         self.timer = self.node.create_timer(timer_period, self.timer_callback)
         self.save_motion = self.node.create_timer(0.5, self.timer_save_motion)
 
@@ -55,6 +56,8 @@ class MotionMatchingNode:
             "stop_delay": 0
         }
         self.count = 0
+
+        self.count_video = 0
 
         self.init_joints()
 
@@ -101,8 +104,7 @@ class MotionMatchingNode:
         print('--state_recording-- ', self.state_recording)
 
         # record join robot and save to json
-        # if len(self.joints) and self.state == 'recording':
-        if len(self.current_joints) and self.state == 'recording':
+        if self.state == 'recording' and len(self.current_joints):
             if self.state_recording:
                 print('------RECORD----')
                 joints = {}
@@ -129,18 +131,47 @@ class MotionMatchingNode:
         self.node.get_logger().info('Counting')
         self.sio.sleep(0.01)
 
-        if self.first:
+        # CAMERA AND IMAGE
+        # OPEN SECOND CAMERA WHEN STATE PLAY
+        if self.state == "play":
+            if self.first_time_camera_robot:
+                # For webcam input
+                self.cap_robot = cv2.VideoCapture(1)
+                self.cap_robot.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self.cap_robot.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                self.first_time_camera_robot = False
+
+            if self.state_recording:
+                success, image = self.cap_robot.read()
+                if not success:
+                    print("Ignoring empty camera frame robot.")
+                else:
+                    print('save video human')
+                    cv2.imwrite(
+                        f'image/robot/img_{self.count_video}.jpg', image)
+                    image = cv2.resize(image, (320, 240))
+
+                    _, image = cv2.imencode('.jpg', image)
+                    data = base64.b64encode(image)
+                    self.sio.emit('robot_image', data)
+
+        # OPEN FIRST CAMERA WHEN STATE PLAY AND RECORDING
+        if self.first_time_camera_human:
             # For webcam input:
-            self.cap = cv2.VideoCapture(0)
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            self.first = False
+            self.cap_human = cv2.VideoCapture(0)
+            self.cap_human.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap_human.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.first_time_camera_human = False
 
-        success, image = self.cap.read()
-
+        success, image = self.cap_human.read()
+        # perform mediapipe pose on image
         if not success:
-            print("Ignoring empty camera frame.")
+            print("Ignoring empty camera frame human.")
         else:
+            if self.state == "play" and self.state_recording:
+                print('save video human')
+                cv2.imwrite(f'image/human/img_{self.count_video}.jpg', image)
+                self.count_video += 1
             # To improve performance, optionally mark the image as not writeable to
             # pass by reference.
             image.flags.writeable = False
@@ -161,9 +192,12 @@ class MotionMatchingNode:
             _, image = cv2.imencode('.jpg', image)
             # convert to base64 format
             data = base64.b64encode(image)
-            self.sio.emit('image', data)
+            self.sio.emit('human_image', data)
 
-            if self.results.pose_landmarks:
+        # ROBOT BEHAVIOUR
+        if self.state == "recording":
+            # robot mimic human's move when button is started
+            if self.state_recording and self.results.pose_landmarks:
                 body_angle = 90 - self.calculate_angle(11, 12)
                 right_angle = self.calculate_angle(12, 14) + body_angle
                 bottom_right_angle = self.calculate_angle(
@@ -211,9 +245,11 @@ class MotionMatchingNode:
                 print('bottom_right_angle', bottom_right_angle)
                 print('left_angle', left_angle)
                 print('bottom_left_angle', bottom_left_angle)
+        elif self.state == "play":
+            pass
+            # run akushon based on json file earlier
 
     def init_joints(self):
-        # for i in range(1, 21):
         for i in range(3, 7):
             joint = Joint()
             joint.id = i
