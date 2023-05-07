@@ -3,7 +3,8 @@ import cv2
 import json
 import math
 import mediapipe as mp
-from motion_matching.json_utils import joint_id_by_name
+from motion_matching.utils.json_utils import joint_id_by_name
+import os
 from rclpy.node import Node, MsgType
 from tachimawari_interfaces.msg import SetJoints, Joint, CurrentJoints
 from typing import List
@@ -29,7 +30,7 @@ class MotionMatchingNode:
         self.joint_subcriber = self.node.create_subscription(
             CurrentJoints, '/joint/current_joints', self.listener_callback, 10)
 
-        timer_period = 0.15
+        timer_period = 0.1
         self.timer = self.node.create_timer(timer_period, self.timer_callback)
         self.save_motion = self.node.create_timer(0.5, self.timer_save_motion)
 
@@ -45,7 +46,7 @@ class MotionMatchingNode:
 
         # STATE in website
         self.state = ""
-        self.state_recording = False
+        self.state_recording = ""
 
         # JSON config for aruku
         self.json_dict = {
@@ -105,7 +106,7 @@ class MotionMatchingNode:
 
         # record join robot and save to json
         if self.state == 'recording' and len(self.current_joints):
-            if self.state_recording:
+            if self.state_recording == "start":
                 print('------RECORD----')
                 joints = {}
                 name = f"motion_{self.count}"
@@ -120,7 +121,7 @@ class MotionMatchingNode:
                 self.json_dict["poses"].append(pause)
                 self.json_dict["poses"].append(speed)
                 self.count += 1
-            else:
+            elif self.state_recording == "stop":
                 print('------SAVE----')
                 json_object = json.dumps(self.json_dict, indent=4)
                 # print('json_object;', json_object)
@@ -131,7 +132,14 @@ class MotionMatchingNode:
         self.node.get_logger().info('Counting')
         self.sio.sleep(0.01)
 
-        # CAMERA AND IMAGE
+        # COMPARE POSE HUMAN AND ROBOT
+        if self.state == "play" and self.state_recording == "stop":
+            pass
+            # while True:
+            #     directory = '../image/human'
+            #     print(len(os.listdir(directory)))
+
+        # ----------------------CAMERA AND IMAGE----------------------
         # OPEN SECOND CAMERA WHEN STATE PLAY
         if self.state == "play":
             if self.first_time_camera_robot:
@@ -141,7 +149,7 @@ class MotionMatchingNode:
                 self.cap_robot.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                 self.first_time_camera_robot = False
 
-            if self.state_recording:
+            if self.state_recording == "start":
                 success, image = self.cap_robot.read()
                 if not success:
                     print("Ignoring empty camera frame robot.")
@@ -168,7 +176,7 @@ class MotionMatchingNode:
         if not success:
             print("Ignoring empty camera frame human.")
         else:
-            if self.state == "play" and self.state_recording:
+            if self.state == "play" and self.state_recording == "start":
                 print('save video human')
                 cv2.imwrite(f'image/human/img_{self.count_video}.jpg', image)
                 self.count_video += 1
@@ -194,10 +202,10 @@ class MotionMatchingNode:
             data = base64.b64encode(image)
             self.sio.emit('human_image', data)
 
-        # ROBOT BEHAVIOUR
+        # ----------------------ROBOT BEHAVIOUR----------------------
         if self.state == "recording":
             # robot mimic human's move when button is started
-            if self.state_recording and self.results.pose_landmarks:
+            if self.state_recording == "start" and self.results.pose_landmarks:
                 body_angle = 90 - self.calculate_angle(11, 12)
                 right_angle = self.calculate_angle(12, 14) + body_angle
                 bottom_right_angle = self.calculate_angle(
