@@ -17,7 +17,7 @@ app = socketio.WSGIApp(sio, static_files={
 
 
 def server():
-    eventlet.wsgi.server(eventlet.listen(('', 5000)), app)
+    eventlet.wsgi.server(eventlet.listen(('', 5555)), app)
 
 
 def main(args=None):

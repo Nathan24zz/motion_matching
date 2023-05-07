@@ -17,6 +17,7 @@ mp_pose = mp.solutions.pose
 class MotionMatchingNode:
     def __init__(self, node: Node, sio):
         self.node = node
+        self.once = False
         self.first_time_camera_human = True
         self.first_time_camera_robot = True
         self.sio = sio
@@ -253,9 +254,13 @@ class MotionMatchingNode:
                 print('bottom_right_angle', bottom_right_angle)
                 print('left_angle', left_angle)
                 print('bottom_left_angle', bottom_left_angle)
-        elif self.state == "play":
-            pass
+        elif self.state == "play" and self.state_recording == "start":
             # run akushon based on json file earlier
+            if not self.once:
+                print("------RUN ON NEW TERMINAL--------")
+                command = "source install/setup.bash; ros2 run akushon interpolator src/akushon/data/action/"
+                os.system(f"gnome-terminal -e 'bash -c \"{command}; bash\" '")
+                self.once = True
 
     def init_joints(self):
         for i in range(3, 7):
