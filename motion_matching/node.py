@@ -98,7 +98,8 @@ class MotionMatchingNode:
 
     def listener_callback(self, message: MsgType):
         if (message.joints != []):
-            self.current_joints = message
+            for joint in message.joints:
+                self.current_joints.append(joint)
 
     def timer_save_motion(self):
         self.node.get_logger().info('Save Motion')
@@ -114,13 +115,15 @@ class MotionMatchingNode:
                 pause = 0
                 # TODO: need to adjust speed when trying on real robot
                 speed = 0.01
-                for joint in self.joints:
+                for joint in self.current_joints:
                     joints[joint_id_by_name[joint.id]] = joint.position
 
-                self.json_dict["poses"].append(joints)
-                self.json_dict["poses"].append(name)
-                self.json_dict["poses"].append(pause)
-                self.json_dict["poses"].append(speed)
+                poses_dict = {}
+                poses_dict["joints"] = joints
+                poses_dict["name"] = name
+                poses_dict["pause"] = pause
+                poses_dict["speed"] = speed
+                self.json_dict["poses"].append(poses_dict)
                 self.count += 1
             elif self.state_recording == "stop":
                 print('------SAVE----')
@@ -215,6 +218,7 @@ class MotionMatchingNode:
                 bottom_left_angle = self.calculate_angle(
                     13, 15, True) - left_angle
 
+                # TODO: need to adjust on real robot
                 # adjust to real robot's state
                 bottom_right_angle *= -1
                 left_angle *= -1
@@ -225,6 +229,7 @@ class MotionMatchingNode:
 
                 right_angle = self.clamp_value(right_angle, -30, 100)
                 left_angle = self.clamp_value(left_angle, -100, 30)
+                # TODO: need to adjust on real robot
                 bottom_right_angle = self.clamp_value(
                     bottom_right_angle, -120, 10)
                 bottom_left_angle = self.clamp_value(
@@ -258,7 +263,7 @@ class MotionMatchingNode:
             # run akushon based on json file earlier
             if not self.once:
                 print("------RUN ON NEW TERMINAL--------")
-                command = "source install/setup.bash; ros2 run akushon interpolator src/akushon/data/action/"
+                command = "bash; source install/setup.bash; ros2 run akushon interpolator src/akushon/data/action/"
                 os.system(f"gnome-terminal -e 'bash -c \"{command}; bash\" '")
                 self.once = True
 
