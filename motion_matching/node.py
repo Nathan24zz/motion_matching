@@ -5,9 +5,11 @@ import math
 import mediapipe as mp
 from motion_matching.utils.json_utils import joint_id_by_name
 import os
-from rclpy.node import Node, MsgType
-from tachimawari_interfaces.msg import SetJoints, Joint, CurrentJoints
 from typing import List
+
+from rclpy.node import Node, MsgType
+from akushon_interfaces.msg import RunAction
+from tachimawari_interfaces.msg import SetJoints, Joint, CurrentJoints
 
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
@@ -26,10 +28,13 @@ class MotionMatchingNode:
 
         self.joints: List[Joint] = []
         self.current_joints: List[Joint] = []
-        self.publisher = self.node.create_publisher(
+        self.joint_publisher = self.node.create_publisher(
             SetJoints, 'joint/set_joints', 10)
         self.joint_subcriber = self.node.create_subscription(
             CurrentJoints, '/joint/current_joints', self.listener_callback, 10)
+
+        self.run_action_pub = self.node.create_publisher(
+            RunAction, 'action/run_action', 10)
 
         timer_period = 0.1
         self.timer = self.node.create_timer(timer_period, self.timer_callback)
@@ -129,7 +134,7 @@ class MotionMatchingNode:
                 print('------SAVE----')
                 json_object = json.dumps(self.json_dict, indent=4)
                 # print('json_object;', json_object)
-                with open("motion_fp.json", "w") as outfile:
+                with open("data/json/motion_fp.json", "w") as outfile:
                     outfile.write(json_object)
 
     def timer_callback(self):
@@ -160,7 +165,7 @@ class MotionMatchingNode:
                 else:
                     print('save video human')
                     cv2.imwrite(
-                        f'image/robot/img_{self.count_video}.jpg', image)
+                        f'data/image/robot/img_{self.count_video}.jpg', image)
                     image = cv2.resize(image, (320, 240))
 
                     _, image = cv2.imencode('.jpg', image)
@@ -182,7 +187,7 @@ class MotionMatchingNode:
         else:
             if self.state == "play" and self.state_recording == "start":
                 print('save video human')
-                cv2.imwrite(f'image/human/img_{self.count_video}.jpg', image)
+                cv2.imwrite(f'data/image/human/img_{self.count_video}.jpg', image)
                 self.count_video += 1
             # To improve performance, optionally mark the image as not writeable to
             # pass by reference.
@@ -251,7 +256,7 @@ class MotionMatchingNode:
 
                 set_joints = SetJoints()
                 set_joints.joints = self.joints
-                self.publisher.publish(set_joints)
+                self.joint_publisher.publish(set_joints)
 
                 print('=================================================')
                 print('body_angle', body_angle)
@@ -262,10 +267,17 @@ class MotionMatchingNode:
         elif self.state == "play" and self.state_recording == "start":
             # run akushon based on json file earlier
             if not self.once:
-                print("------RUN ON NEW TERMINAL--------")
-                command = "bash; source install/setup.bash; ros2 run akushon interpolator src/akushon/data/action/"
-                os.system(f"gnome-terminal -e 'bash -c \"{command}; bash\" '")
-                self.once = True
+                print("------RUN PUBLISHER--------")
+                with open("data/json/motion_fp.json") as file:
+                    data = json.load(file)
+                    data = json.dumps(data)
+
+                    run_action_msg = RunAction()
+                    run_action_msg.control_type = 1
+                    run_action_msg.action_name = "Motion Final Project"
+                    run_action_msg.json = data
+                    self.run_action_pub.publish(run_action_msg)
+                    self.once = True
 
     def init_joints(self):
         for i in range(3, 7):
