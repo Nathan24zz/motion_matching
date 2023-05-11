@@ -1,9 +1,15 @@
 import base64
+import imp
+from webbrowser import get
 import cv2
 import json
 import math
 import mediapipe as mp
 from motion_matching.utils.json_utils import joint_id_by_name
+from motion_matching.utils.file_utils import get_absolute_file_paths
+from motion_matching.utils.score import Score
+from motion_matching.utils.image_comparison import load_robot_rcnn_model, human_mediapipe_detection, robot_rcnn_detection
+import numpy as np
 import os
 import time
 from typing import List
@@ -21,6 +27,7 @@ class MotionMatchingNode:
     def __init__(self, node: Node, sio, timer_period: float, camera_human_path: str, camera_robot_path: str):
         self.node = node
         self.once = False
+        self.done_process_pose_comparison = False
         self.first_time_camera_human = True
         self.first_time_camera_robot = True
         self.sio = sio
@@ -145,8 +152,38 @@ class MotionMatchingNode:
         self.sio.sleep(0.01)
 
         # COMPARE POSE HUMAN AND ROBOT
-        if self.state == "play" and self.state_recording == "stop":
-            pass
+        if self.state == "play" and self.state_recording == "stop" \
+                and not self.done_process_pose_comparison:
+            human_dir = get_absolute_file_paths('data/image/human/')
+            human_dir = sorted(human_dir, key=lambda t: os.stat(t).st_mtime)
+            robot_dir = get_absolute_file_paths('data/image/robot/')
+            robot_dir = sorted(robot_dir, key=lambda t: os.stat(t).st_mtime)
+
+            s = Score()
+            image_1_points = []
+            image_2_points = []
+            robot_model = load_robot_rcnn_model(
+                'weight/keypointsrcnn_weights.pth')
+
+            if len(human_dir) > 0 and len(robot_dir) > 0:
+                if len(human_dir) <= len(robot_dir):
+                    iter = len(human_dir)
+                else:
+                    iter = len(robot_dir)
+
+                for i in range(iter):
+                    image_1_points = human_mediapipe_detection(
+                        human_dir[i], self.pose)
+                    image_2_points = robot_rcnn_detection(
+                        robot_dir[i], robot_model)
+
+                    final_score, score_list = s.compare(np.asarray(
+                        image_1_points), np.asarray(image_2_points))
+                    print("Total Score : ", final_score)
+                    print("Score List : ", score_list)
+
+            self.done_process_pose_comparison = True
+            # print(os.getcwd())
             # while True:
             #     directory = '../image/human'
             #     print(len(os.listdir(directory)))
