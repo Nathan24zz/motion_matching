@@ -5,6 +5,7 @@ import math
 import mediapipe as mp
 from motion_matching.utils.json_utils import joint_id_by_name
 import os
+import time
 from typing import List
 
 from rclpy.node import Node, MsgType
@@ -17,7 +18,7 @@ mp_pose = mp.solutions.pose
 
 
 class MotionMatchingNode:
-    def __init__(self, node: Node, sio):
+    def __init__(self, node: Node, sio, timer_period: float, camera_human_path: str, camera_robot_path: str):
         self.node = node
         self.once = False
         self.first_time_camera_human = True
@@ -36,7 +37,6 @@ class MotionMatchingNode:
         self.run_action_pub = self.node.create_publisher(
             RunAction, 'action/run_action', 10)
 
-        timer_period = 0.1
         self.timer = self.node.create_timer(timer_period, self.timer_callback)
         self.save_motion = self.node.create_timer(0.5, self.timer_save_motion)
 
@@ -64,6 +64,8 @@ class MotionMatchingNode:
         }
         self.count = 0
 
+        self.camera_human_path = camera_human_path
+        self.camera_robot_path = camera_robot_path
         self.count_video = 0
 
         self.init_joints()
@@ -138,6 +140,7 @@ class MotionMatchingNode:
                     outfile.write(json_object)
 
     def timer_callback(self):
+        start_time = time.time()
         self.node.get_logger().info('Counting')
         self.sio.sleep(0.01)
 
@@ -153,7 +156,7 @@ class MotionMatchingNode:
         if self.state == "play":
             if self.first_time_camera_robot:
                 # For webcam input
-                self.cap_robot = cv2.VideoCapture(1)
+                self.cap_robot = cv2.VideoCapture(self.camera_robot_path)
                 self.cap_robot.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 self.cap_robot.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                 self.first_time_camera_robot = False
@@ -175,7 +178,7 @@ class MotionMatchingNode:
         # OPEN FIRST CAMERA WHEN STATE PLAY AND RECORDING
         if self.first_time_camera_human:
             # For webcam input:
-            self.cap_human = cv2.VideoCapture(0)
+            self.cap_human = cv2.VideoCapture(self.camera_human_path)
             self.cap_human.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             self.cap_human.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             self.first_time_camera_human = False
@@ -187,7 +190,8 @@ class MotionMatchingNode:
         else:
             if self.state == "play" and self.state_recording == "start":
                 print('save video human')
-                cv2.imwrite(f'data/image/human/img_{self.count_video}.jpg', image)
+                cv2.imwrite(
+                    f'data/image/human/img_{self.count_video}.jpg', image)
                 self.count_video += 1
             # To improve performance, optionally mark the image as not writeable to
             # pass by reference.
@@ -225,20 +229,20 @@ class MotionMatchingNode:
 
                 # TODO: need to adjust on real robot
                 # adjust to real robot's state
-                bottom_right_angle *= -1
-                left_angle *= -1
+                # bottom_right_angle *= -1
+                # left_angle *= -1
 
                 # adjust to real robot's offset
                 right_angle -= 45
                 left_angle += 45
 
-                right_angle = self.clamp_value(right_angle, -30, 100)
-                left_angle = self.clamp_value(left_angle, -100, 30)
+                right_angle = self.clamp_value(right_angle, -30, 90)
+                left_angle = self.clamp_value(left_angle, -90, 30)
                 # TODO: need to adjust on real robot
                 bottom_right_angle = self.clamp_value(
-                    bottom_right_angle, -120, 10)
+                    bottom_right_angle, -10, 120)
                 bottom_left_angle = self.clamp_value(
-                    bottom_left_angle, -10, 120)
+                    bottom_left_angle, -120, 10)
 
                 self.right_angle = self.get_reduced_value(
                     self.right_angle, right_angle)
@@ -278,6 +282,7 @@ class MotionMatchingNode:
                     run_action_msg.json = data
                     self.run_action_pub.publish(run_action_msg)
                     self.once = True
+        print("--- %s seconds ---" % (time.time() - start_time))
 
     def init_joints(self):
         for i in range(3, 7):
