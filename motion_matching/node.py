@@ -164,6 +164,8 @@ class MotionMatchingNode:
             image_2_points = []
             robot_model = load_robot_rcnn_model(
                 'weight/keypointsrcnn_weights.pth')
+            self.pose = mp_pose.Pose(
+                min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
             if len(human_dir) > 0 and len(robot_dir) > 0:
                 if len(human_dir) <= len(robot_dir):
@@ -183,10 +185,6 @@ class MotionMatchingNode:
                     print("Score List : ", score_list)
 
             self.done_process_pose_comparison = True
-            # print(os.getcwd())
-            # while True:
-            #     directory = '../image/human'
-            #     print(len(os.listdir(directory)))
 
         # ----------------------CAMERA AND IMAGE----------------------
         # OPEN SECOND CAMERA WHEN STATE PLAY

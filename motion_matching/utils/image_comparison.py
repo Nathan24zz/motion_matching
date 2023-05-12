@@ -8,33 +8,11 @@ import torchvision
 from torchvision.models.detection.rpn import AnchorGenerator
 import itertools
 
-from .pose import Pose
-
-
-def reduce_human_keypoints_posenet(keypoints):
-    # keypoints_classes_ids2names = {0: 'NOSE', 1: 'LEFT_EYE', 2: 'RIGHT_EYE', 3: 'LEFT_EAR', 4: 'RIGHT_EAR', 5: 'LEFT_SHOULDER', 6:'RIGHT_SHOULDER', 7:'LEFT_ELBOW', 8:'RIGHT_ELBOW', 9:'LEFT_WRIST', 10:'RIGHT_WRIST', 11:'LEFT_HIP', 12:'RIGHT_HIP' ,13:'LEFT_KNEE', 14:'RIGHT_KNEE',15:'LEFT_ANKLE', 16:'RIGHT_ANKLE'}
-    # 0: 'Head', 1: 'Trunk', 2: 'RH', 3: 'LH', 4: 'RF', 5: 'LF'}
-
-    head = [(keypoints[1][0] + keypoints[2][0]) / 2,
-            (keypoints[1][1] + keypoints[2][1]) / 2]
-    right_hand = keypoints[10]
-    left_hand = keypoints[9]
-    right_foot = keypoints[16]
-    left_foot = keypoints[15]
-
-    y_trunk_lmid = (keypoints[5][1] + keypoints[11][1]) * 1 / 2
-    y_trunk_llower = (y_trunk_lmid + keypoints[11][1]) / 2
-    y_trunk_rmid = (keypoints[6][1] + keypoints[12][1]) * 1 / 2
-    y_trunk_rlower = (y_trunk_rmid + keypoints[11][1]) / 2
-    y_trunk = (y_trunk_llower + y_trunk_rlower) / 2
-    trunk = [(keypoints[11][0] + keypoints[12][0]) / 2, y_trunk]
-
-    reduced_keypoints = [head, trunk, right_hand,
-                         left_hand, right_foot, left_foot]
-    return reduced_keypoints
+from motion_matching.utils.pose import Pose
 
 
 def human_mediapipe_detection(image_path, pose):
+    print('human: ', image_path)
     image = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
     a = Pose()
@@ -68,7 +46,6 @@ def human_mediapipe_detection(image_path, pose):
         trunk = [(landmark[23].x + landmark[24].x) / 2 * image_width, y_trunk]
 
         keypoints = [head, trunk, right_hand, left_hand, right_foot, left_foot]
-        # print(np.asarray(image_points))
         visualize(image, keypoints=np.array([keypoints]))
 
         name = image_path.split('/')[-1].split('.')[0]
@@ -104,6 +81,7 @@ def load_robot_rcnn_model(path):
 
 
 def robot_rcnn_detection(image_path, model):
+    print('robot: ', image_path)
     image = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
     a = Pose()
