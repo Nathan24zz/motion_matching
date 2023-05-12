@@ -12,7 +12,7 @@ from motion_matching.utils.pose import Pose
 
 
 def human_mediapipe_detection(image_path, pose):
-    print('human: ', image_path)
+    # print('human: ', image_path)
     image = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
     a = Pose()
@@ -81,7 +81,7 @@ def load_robot_rcnn_model(path):
 
 
 def robot_rcnn_detection(image_path, model):
-    print('robot: ', image_path)
+    # print('robot: ', image_path)
     image = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
     a = Pose()

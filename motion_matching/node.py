@@ -13,6 +13,7 @@ import numpy as np
 import os
 import time
 from typing import List
+from tqdm import tqdm
 
 from rclpy.node import Node, MsgType
 from akushon_interfaces.msg import RunAction
@@ -31,6 +32,9 @@ class MotionMatchingNode:
         self.first_time_camera_human = True
         self.first_time_camera_robot = True
         self.sio = sio
+
+        # Model for human and robot
+        self.robot_model = None
         self.pose = mp_pose.Pose(
             min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
@@ -78,10 +82,22 @@ class MotionMatchingNode:
         self.init_joints()
 
         # Handler client data
-        def state_recording(sid, data): self.state_recording = data
-        def state(sid, data): self.state = data
+        def state_recording(sid, data):
+            if self.state_recording != data:
+                self.reinit()
+            self.state_recording = data
+
+        def state(sid, data):
+            if self.state != data:
+                self.reinit()
+            self.state = data
+
         self.sio.on('state_recording', handler=state_recording)
         self.sio.on('state', handler=state)
+
+    def reinit(self):
+        self.once = False
+        self.done_process_pose_comparison = False
 
     def calculate_angle(self, i1, i2, inverse=False):
         x1 = self.results.pose_landmarks.landmark[i1].x * self.image_width
@@ -162,8 +178,12 @@ class MotionMatchingNode:
             s = Score()
             image_1_points = []
             image_2_points = []
-            robot_model = load_robot_rcnn_model(
-                'weight/keypointsrcnn_weights.pth')
+
+            if self.robot_model == None:
+                print('init robot model')
+                self.robot_model = load_robot_rcnn_model(
+                    'weight/keypointsrcnn_weights.pth')
+            # reinit mediapipe
             self.pose = mp_pose.Pose(
                 min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
@@ -173,17 +193,24 @@ class MotionMatchingNode:
                 else:
                     iter = len(robot_dir)
 
-                for i in range(iter):
-                    image_1_points = human_mediapipe_detection(
-                        human_dir[i], self.pose)
-                    image_2_points = robot_rcnn_detection(
-                        robot_dir[i], robot_model)
+                total_score = 0
+                count = 0
+                for i in tqdm(range(iter), desc='Pose Comparison Process'):
+                    try:
+                        image_1_points = human_mediapipe_detection(
+                            human_dir[i], self.pose)
+                        image_2_points = robot_rcnn_detection(
+                            robot_dir[i], self.robot_model)
 
-                    final_score, score_list = s.compare(np.asarray(
-                        image_1_points), np.asarray(image_2_points))
-                    print("Total Score : ", final_score)
-                    print("Score List : ", score_list)
-
+                        final_score, score_list = s.compare(np.asarray(
+                            image_1_points), np.asarray(image_2_points))
+                        # print("Total Score : ", final_score)
+                        # print("Score List : ", score_list)
+                        total_score += final_score
+                        count += 1
+                    except:
+                        pass
+                print('Overall Score: ', total_score/count)
             self.done_process_pose_comparison = True
 
         # ----------------------CAMERA AND IMAGE----------------------

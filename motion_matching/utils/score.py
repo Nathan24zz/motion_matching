@@ -22,7 +22,16 @@ class Score(object):
 
     def compare(self, ip, model):
         # ip = self.normalize(ip)
-        scores = []
-        for k in range(0, 6):
-            scores.append(self.cosine_distance(ip[:, k], model[:, k]))
-        return np.mean(scores), scores
+
+        # print(ip.shape)
+        # print(model.shape)
+        if ip.shape == model.shape:
+            scores = []
+            for k in range(0, 6):
+                scores.append(self.cosine_distance(ip[:, k], model[:, k]))
+            return np.mean(scores), scores
+        else:
+            if not ip.shape:
+                print('skip because human pose')
+            else:
+                print('skip because robot pose')
