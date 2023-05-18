@@ -1,11 +1,11 @@
 import argparse
 import cv2
-import numpy as np
 import mediapipe as mp
+import numpy as np
+from openvino.runtime import Core
 
 import torch
 import torchvision
-from torchvision.models.detection.rpn import AnchorGenerator
 import itertools
 
 from motion_matching.utils.pose import Pose
@@ -63,52 +63,51 @@ def human_mediapipe_detection(image_path, pose):
 
 
 def load_robot_rcnn_model(path):
-    device = torch.device('cpu')
-    anchor_generator = AnchorGenerator(sizes=(
-        32, 64, 128, 256, 512), aspect_ratios=(0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0))
-    model_ = torchvision.models.detection.keypointrcnn_resnet50_fpn(pretrained=False,
-                                                                    pretrained_backbone=True,
-                                                                    num_keypoints=6,
-                                                                    num_classes=2,  # Background is the first class, object is the second class
-                                                                    rpn_anchor_generator=anchor_generator)
+    # Load the network in OpenVINO Runtime.
+    ie = Core()
+    model_ir = ie.read_model(model='weight/keypoint_rcnn.xml')
+    compiled_model_ir = ie.compile_model(model=model_ir, device_name="CPU")
 
-    # load the model checkpoint
-    with torch.no_grad():
-        model_.load_state_dict(torch.load(path))
-        model_.to(device)
-        model_.eval()
-    return model_
+    return compiled_model_ir
 
 
 def robot_rcnn_detection(image_path, model):
-    # print('robot: ', image_path)
+    device = torch.device('cpu')
+    a = Pose()
     image = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
-    a = Pose()
+    orig_frame = image.copy()
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = image / 255.0
+    image = np.transpose(image, (2, 0, 1))
+    image = torch.tensor(image, dtype=torch.float)
+    image = image.unsqueeze(0).to(device)
 
-    device = torch.device('cpu')
-    with torch.no_grad():
-        orig_frame = image.copy()
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = image / 255.0
-        image = np.transpose(image, (2, 0, 1))
-        image = torch.tensor(image, dtype=torch.float)
-        image = image.unsqueeze(0).to(device)
-        output = model(image)
+    res_ir = model([image])
 
-    scores = output[0]['scores']
-    # scores
+    boxes_index = model.output(0)
+    labels_index = model.output(1)
+    scores_index = model.output(2)
+    keypoints_index = model.output(3)
+    keypoints_scores_index = model.output(4)
+
+    scores = res_ir[scores_index]
     # Indexes of boxes with scores > 0.7
     high_scores_idxs = np.where(scores > 0.55)[0].tolist()
-    post_nms_idxs = torchvision.ops.nms(output[0]['boxes'][high_scores_idxs],
-                                        output[0]['scores'][high_scores_idxs], 0.3).cpu().numpy()  # Indexes of boxes left after applying NMS (iou_threshold=0.3)
+
+    boxes_1 = torch.from_numpy(res_ir[boxes_index])
+    scores_1 = torch.from_numpy(res_ir[scores_index])
+    keypoints_1 = torch.from_numpy(res_ir[keypoints_index])
+
+    post_nms_idxs = torchvision.ops.nms(boxes_1[high_scores_idxs], scores_1[high_scores_idxs], 0.3).cpu(
+    ).numpy()  # Indexes of boxes left after applying NMS (iou_threshold=0.3)
 
     keypoints = []
-    for kps in output[0]['keypoints'][high_scores_idxs][post_nms_idxs].detach().cpu().numpy():
+    for kps in keypoints_1[high_scores_idxs][post_nms_idxs].detach().cpu().numpy():
         keypoints.append([list(map(int, kp[:2])) for kp in kps])
-
+    # print(keypoints)
     bboxes = []
-    for bbox in output[0]['boxes'][high_scores_idxs][post_nms_idxs].detach().cpu().numpy():
+    for bbox in boxes_1[high_scores_idxs][post_nms_idxs].detach().cpu().numpy():
         bboxes.append(list(map(int, bbox.tolist())))
 
     visualize(orig_frame, bboxes, keypoints)

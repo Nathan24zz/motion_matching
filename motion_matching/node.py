@@ -29,6 +29,7 @@ class MotionMatchingNode:
         self.node = node
         self.once = False
         self.done_process_pose_comparison = False
+        self.send_image_to_web = True
         self.first_time_camera_human = True
         self.first_time_camera_robot = True
         self.sio = sio
@@ -82,15 +83,18 @@ class MotionMatchingNode:
         self.init_joints()
 
         # Handler client data
-        def state_recording(sid, data):
-            if self.state_recording != data:
-                self.reinit()
-            self.state_recording = data
-
         def state(sid, data):
             if self.state != data:
                 self.reinit()
             self.state = data
+
+        def state_recording(sid, data):
+            if self.state_recording != data:
+                self.reinit()
+
+            self.state_recording = data
+            if self.state == "play" and self.state_recording == "start":
+                self.send_image_to_web = False
 
         self.sio.on('state_recording', handler=state_recording)
         self.sio.on('state', handler=state)
@@ -144,7 +148,7 @@ class MotionMatchingNode:
                 name = f"motion_{self.count}"
                 pause = 0
                 # TODO: need to adjust speed when trying on real robot
-                speed = 0.01
+                speed = 0.005
                 for joint in self.current_joints:
                     joints[joint_id_by_name[joint.id]] = joint.position
 
@@ -196,20 +200,20 @@ class MotionMatchingNode:
                 total_score = 0
                 count = 0
                 for i in tqdm(range(iter), desc='Pose Comparison Process'):
-                    try:
-                        image_1_points = human_mediapipe_detection(
-                            human_dir[i], self.pose)
-                        image_2_points = robot_rcnn_detection(
-                            robot_dir[i], self.robot_model)
+                    # try:
+                    image_1_points = human_mediapipe_detection(
+                        human_dir[i], self.pose)
+                    image_2_points = robot_rcnn_detection(
+                        robot_dir[i], self.robot_model)
 
-                        final_score, score_list = s.compare(np.asarray(
-                            image_1_points), np.asarray(image_2_points))
-                        # print("Total Score : ", final_score)
-                        # print("Score List : ", score_list)
-                        total_score += final_score
-                        count += 1
-                    except:
-                        pass
+                    final_score, score_list = s.compare(np.asarray(
+                        image_1_points), np.asarray(image_2_points))
+                    print("Total Score : ", final_score)
+                    print("Score List : ", score_list)
+                    total_score += final_score
+                    count += 1
+                    # except:
+                    #     pass
                 print('Overall Score: ', total_score/count)
             self.done_process_pose_comparison = True
 
@@ -235,7 +239,9 @@ class MotionMatchingNode:
 
                     _, image = cv2.imencode('.jpg', image)
                     data = base64.b64encode(image)
-                    self.sio.emit('robot_image', data)
+
+                    if self.send_image_to_web:
+                        self.sio.emit('robot_image', data)
 
         # OPEN FIRST CAMERA WHEN STATE PLAY AND RECORDING
         if self.first_time_camera_human:
@@ -275,7 +281,10 @@ class MotionMatchingNode:
             _, image = cv2.imencode('.jpg', image)
             # convert to base64 format
             data = base64.b64encode(image)
-            self.sio.emit('human_image', data)
+
+            # alleviate delay
+            if self.send_image_to_web:
+                self.sio.emit('human_image', data)
 
         # ----------------------ROBOT BEHAVIOUR----------------------
         if self.state == "recording":
@@ -291,15 +300,15 @@ class MotionMatchingNode:
 
                 # TODO: need to adjust on real robot
                 # adjust to real robot's state
-                # bottom_right_angle *= -1
-                # left_angle *= -1
+                bottom_left_angle *= -1
+                left_angle *= -1
 
                 # adjust to real robot's offset
                 right_angle -= 45
                 left_angle += 45
 
                 right_angle = self.clamp_value(right_angle, -30, 90)
-                left_angle = self.clamp_value(left_angle, -90, 30)
+                left_angle = self.clamp_value(left_angle, -30, 90)
                 # TODO: need to adjust on real robot
                 bottom_right_angle = self.clamp_value(
                     bottom_right_angle, -10, 120)
