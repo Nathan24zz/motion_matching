@@ -148,7 +148,7 @@ class MotionMatchingNode:
                 name = f"motion_{self.count}"
                 pause = 0
                 # TODO: need to adjust speed when trying on real robot
-                speed = 0.005
+                speed = 0.05
                 for joint in self.current_joints:
                     joints[joint_id_by_name[joint.id]] = joint.position
 
@@ -227,21 +227,20 @@ class MotionMatchingNode:
                 self.cap_robot.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                 self.first_time_camera_robot = False
 
-            if self.state_recording == "start":
-                success, image = self.cap_robot.read()
-                if not success:
-                    print("Ignoring empty camera frame robot.")
-                else:
-                    print('save video human')
-                    cv2.imwrite(
-                        f'data/image/robot/img_{self.count_video}.jpg', image)
-                    image = cv2.resize(image, (320, 240))
+            success, image = self.cap_robot.read()
+            if not success:
+                print("Ignoring empty camera frame robot.")
+            else:
+                if self.state_recording == "start":
+                    print('save video robot')
+                    cv2.imwrite(f'data/image/robot/img_{self.count_video}.jpg', image)
+                image = cv2.resize(image, (320, 240))
 
-                    _, image = cv2.imencode('.jpg', image)
-                    data = base64.b64encode(image)
+                _, image = cv2.imencode('.jpg', image)
+                data = base64.b64encode(image)
 
-                    if self.send_image_to_web:
-                        self.sio.emit('robot_image', data)
+                if self.send_image_to_web:
+                    self.sio.emit('robot_image', data)
 
         # OPEN FIRST CAMERA WHEN STATE PLAY AND RECORDING
         if self.first_time_camera_human:

@@ -45,13 +45,14 @@ def human_mediapipe_detection(image_path, pose):
         # y_trunk = (y_trunk_rmid + y_trunk_lmid) / 2 * image_height
         trunk = [(landmark[23].x + landmark[24].x) / 2 * image_width, y_trunk]
 
-        keypoints = [head, trunk, right_hand, left_hand, right_foot, left_foot]
-        visualize(image, keypoints=np.array([keypoints]))
+        keypoints = np.asanyarray([[head, trunk, right_hand, left_hand, right_foot, left_foot]], dtype=np.int32)
+        visualize(image, keypoints=keypoints)
 
         name = image_path.split('/')[-1].split('.')[0]
         new_name = image_path.replace(name, 'result/' + name + '_result')
         cv2.imwrite(new_name, image)
 
+        # from shape (6,2) -> (12,) / flatten list
         merged = list(itertools.chain.from_iterable(keypoints))
 
         # reinitialize image_points
@@ -72,6 +73,7 @@ def load_robot_rcnn_model(path):
 
 
 def robot_rcnn_detection(image_path, model):
+    # print('robot: ', image_path)
     device = torch.device('cpu')
     a = Pose()
     image = cv2.imread(image_path, cv2.IMREAD_COLOR)
@@ -120,7 +122,7 @@ def robot_rcnn_detection(image_path, model):
     # reinitialize image_points
     image_points = []
     # Normalization of the points
-    input_new_coords = np.asarray(a.roi(merged)).reshape(6, 2)
+    input_new_coords = np.asarray(a.roi(merged), dtype=np.int32).reshape(6, 2)
     image_points.append(input_new_coords)
     return image_points
 
