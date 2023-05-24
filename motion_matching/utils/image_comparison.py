@@ -66,7 +66,7 @@ def human_mediapipe_detection(image_path, pose):
 def load_robot_rcnn_model(path):
     # Load the network in OpenVINO Runtime.
     ie = Core()
-    model_ir = ie.read_model(model='weight/keypoint_rcnn.xml')
+    model_ir = ie.read_model(model=path)
     compiled_model_ir = ie.compile_model(model=model_ir, device_name="CPU")
 
     return compiled_model_ir

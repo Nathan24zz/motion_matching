@@ -186,11 +186,10 @@ class MotionMatchingNode:
             if self.robot_model == None:
                 print('init robot model')
                 self.robot_model = load_robot_rcnn_model(
-                    'weight/keypointsrcnn_weights.pth')
+                    'weight/keypoint_rcnn.xml')
             # reinit mediapipe
             self.pose = mp_pose.Pose(
                 min_detection_confidence=0.5, min_tracking_confidence=0.5)
-
             if len(human_dir) > 0 and len(robot_dir) > 0:
                 if len(human_dir) <= len(robot_dir):
                     iter = len(human_dir)

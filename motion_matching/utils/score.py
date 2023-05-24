@@ -24,7 +24,6 @@ class Score(object):
         return self.percentage_score(math.sqrt(2 * (1 - cosine)))
 
     def normalize(self, input_test):
-        print('input_test shape: ', input_test.shape)
         for k in range(0, 6):
             nominator = input_test[:, k]
             denominator = np.linalg.norm(input_test[:, k])
