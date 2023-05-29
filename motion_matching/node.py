@@ -178,6 +178,9 @@ class MotionMatchingNode:
             human_dir = sorted(human_dir, key=lambda t: os.stat(t).st_mtime)
             robot_dir = get_absolute_file_paths('data/image/robot/')
             robot_dir = sorted(robot_dir, key=lambda t: os.stat(t).st_mtime)
+            result = cv2.VideoWriter('data/result.avi', 
+                         cv2.VideoWriter_fourcc(*'DIVX'),
+                         2, (640, 480))
 
             s = Score()
             image_1_points = []
@@ -200,20 +203,32 @@ class MotionMatchingNode:
                 count = 0
                 for i in tqdm(range(iter), desc='Pose Comparison Process'):
                     # try:
-                    image_1_points = human_mediapipe_detection(
+                    img = np.zeros([480,640,3])
+                    image_1_points, image1, imagestick1 = human_mediapipe_detection(
                         human_dir[i], self.pose)
-                    image_2_points = robot_rcnn_detection(
+                    image_2_points, image2, imagestick2 = robot_rcnn_detection(
                         robot_dir[i], self.robot_model)
+                    
+                    # arrange image in video
+                    img[:240, :320] = image1
+                    img[:240, 320:] = image2
+                    img[240:, :320] = imagestick1
+                    img[240:, 320:] = imagestick2
+                    img = np.uint8(img)
 
                     final_score, score_list = s.compare(np.asarray(
                         image_1_points), np.asarray(image_2_points))
-                    print("Total Score : ", final_score)
-                    print("Score List : ", score_list)
+                    # print("Total Score : ", final_score)
+                    # print("Score List : ", score_list)
                     total_score += final_score
                     count += 1
-                    # except:
-                    #     pass
+
+                    # add text in video
+                    img = cv2.putText(img, "Score: " + str(round(final_score, 2)), (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 1, cv2.LINE_AA)
+                    img = cv2.putText(img, "Overall Score: " + str(round(total_score/count, 2)), (10,60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 1, cv2.LINE_AA)
+                    result.write(img)
                 print('Overall Score: ', total_score/count)
+                result.release()
             self.done_process_pose_comparison = True
 
         # ----------------------CAMERA AND IMAGE----------------------
