@@ -1,6 +1,4 @@
 import base64
-import imp
-from webbrowser import get
 import cv2
 import json
 import math
@@ -14,6 +12,9 @@ import os
 import time
 from typing import List
 from tqdm import tqdm
+from fp_interfaces.msg import StateAndButton
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 
 from rclpy.node import Node, MsgType
 from akushon_interfaces.msg import RunAction
@@ -25,14 +26,14 @@ mp_pose = mp.solutions.pose
 
 
 class MotionMatchingNode:
-    def __init__(self, node: Node, sio, timer_period: float, camera_human_path: str, camera_robot_path: str):
+    def __init__(self, node: Node, camera_human_path: str, camera_robot_path: str):
         self.node = node
-        self.once = False
+        self.run_motion = False
         self.done_process_pose_comparison = False
         self.send_image_to_web = True
         self.first_time_camera_human = True
         self.first_time_camera_robot = True
-        self.sio = sio
+        # self.sio = sio
 
         # Model for human and robot
         self.robot_model = None
@@ -45,11 +46,21 @@ class MotionMatchingNode:
             SetJoints, 'joint/set_joints', 10)
         self.joint_subcriber = self.node.create_subscription(
             CurrentJoints, '/joint/current_joints', self.listener_callback, 10)
+        
+        # interaction with server
+        self.state_subscriber = self.node.create_subscription(
+            StateAndButton, 'state_and_button', self.state_listener_callback, 10)
+        self.human_image_publisher = self.node.create_publisher(
+            Image, 'human_image', 10)
+        self.robot_image_publisher = self.node.create_publisher(
+            Image, 'robot_image', 10)
+        self.br = CvBridge()
 
+        # akushon
         self.run_action_pub = self.node.create_publisher(
             RunAction, 'action/run_action', 10)
 
-        self.timer = self.node.create_timer(timer_period, self.timer_callback)
+        self.timer = self.node.create_timer(0.1, self.timer_callback)
         self.save_motion = self.node.create_timer(0.5, self.timer_save_motion)
 
         self.image_height = 0
@@ -82,25 +93,25 @@ class MotionMatchingNode:
 
         self.init_joints()
 
-        # Handler client data
-        def state(sid, data):
-            if self.state != data:
-                self.reinit()
-            self.state = data
+        # # Handler client data
+        # def state(sid, data):
+        #     if self.state != data:
+        #         self.reinit()
+        #     self.state = data
 
-        def state_recording(sid, data):
-            if self.state_recording != data:
-                self.reinit()
+        # def state_recording(sid, data):
+        #     if self.state_recording != data:
+        #         self.reinit()
 
-            self.state_recording = data
-            if self.state == "play" and self.state_recording == "start":
-                self.send_image_to_web = False
+        #     self.state_recording = data
+        #     if self.state == "play" and self.state_recording == "start":
+        #         self.send_image_to_web = False
 
-        self.sio.on('state_recording', handler=state_recording)
-        self.sio.on('state', handler=state)
+        # self.sio.on('state_recording', handler=state_recording)
+        # self.sio.on('state', handler=state)
 
     def reinit(self):
-        self.once = False
+        self.run_motion = False
         self.done_process_pose_comparison = False
 
     def calculate_angle(self, i1, i2, inverse=False):
@@ -129,6 +140,15 @@ class MotionMatchingNode:
 
     def get_reduced_value(self, current, target):
         return current + ((target - current) * self.speed)
+    
+    def state_listener_callback(self, message: MsgType):
+        if self.state != message.state or  self.state_recording != message.button:
+            self.reinit()
+        self.state = message.state
+        self.state_recording = message.button
+
+        if self.state == "play" and self.state_recording == "start":
+            self.send_image_to_web = False
 
     def listener_callback(self, message: MsgType):
         if (message.joints != []):
@@ -167,206 +187,211 @@ class MotionMatchingNode:
                     outfile.write(json_object)
 
     def timer_callback(self):
-        start_time = time.time()
-        self.node.get_logger().info('Counting')
-        self.sio.sleep(0.01)
+        while True:
+            start_time = time.time()
+            self.node.get_logger().info('Counting')
+            # self.sio.sleep(0.01)
 
-        # COMPARE POSE HUMAN AND ROBOT
-        if self.state == "play" and self.state_recording == "stop" \
-                and not self.done_process_pose_comparison:
-            human_dir = get_absolute_file_paths('data/image/human/')
-            human_dir = sorted(human_dir, key=lambda t: os.stat(t).st_mtime)
-            robot_dir = get_absolute_file_paths('data/image/robot/')
-            robot_dir = sorted(robot_dir, key=lambda t: os.stat(t).st_mtime)
-            result = cv2.VideoWriter('data/result.avi', 
-                         cv2.VideoWriter_fourcc(*'DIVX'),
-                         2, (640, 480))
+            # COMPARE POSE HUMAN AND ROBOT
+            if self.state == "play" and self.state_recording == "stop" \
+                    and not self.done_process_pose_comparison:
+                human_dir = get_absolute_file_paths('data/image/human/')
+                human_dir = sorted(human_dir, key=lambda t: os.stat(t).st_mtime)
+                robot_dir = get_absolute_file_paths('data/image/robot/')
+                robot_dir = sorted(robot_dir, key=lambda t: os.stat(t).st_mtime)
+                result = cv2.VideoWriter('data/result.avi', 
+                            cv2.VideoWriter_fourcc(*'DIVX'),
+                            2, (640, 480))
 
-            s = Score()
-            image_1_points = []
-            image_2_points = []
+                s = Score()
+                image_1_points = []
+                image_2_points = []
 
-            if self.robot_model == None:
-                print('init robot model')
-                self.robot_model = load_robot_rcnn_model(
-                    'weight/keypoint_rcnn.xml')
-            # reinit mediapipe
-            self.pose = mp_pose.Pose(
-                min_detection_confidence=0.5, min_tracking_confidence=0.5)
-            if len(human_dir) > 0 and len(robot_dir) > 0:
-                if len(human_dir) <= len(robot_dir):
-                    iter = len(human_dir)
+                if self.robot_model == None:
+                    print('init robot model')
+                    self.robot_model = load_robot_rcnn_model(
+                        'weight/keypoint_rcnn.xml')
+                # reinit mediapipe
+                self.pose = mp_pose.Pose(
+                    min_detection_confidence=0.5, min_tracking_confidence=0.5)
+                if len(human_dir) > 0 and len(robot_dir) > 0:
+                    if len(human_dir) <= len(robot_dir):
+                        iter = len(human_dir)
+                    else:
+                        iter = len(robot_dir)
+
+                    total_score = 0
+                    count = 0
+                    for i in tqdm(range(iter), desc='Pose Comparison Process'):
+                        # try:
+                        img = np.zeros([480,640,3])
+                        image_1_points, image1, imagestick1 = human_mediapipe_detection(
+                            human_dir[i], self.pose)
+                        image_2_points, image2, imagestick2 = robot_rcnn_detection(
+                            robot_dir[i], self.robot_model)
+                        
+                        # arrange image in video
+                        img[:240, :320] = image1
+                        img[:240, 320:] = image2
+                        img[240:, :320] = imagestick1
+                        img[240:, 320:] = imagestick2
+                        img = np.uint8(img)
+
+                        final_score, score_list = s.compare(np.asarray(
+                            image_1_points), np.asarray(image_2_points))
+                        # print("Total Score : ", final_score)
+                        # print("Score List : ", score_list)
+                        total_score += final_score
+                        count += 1
+
+                        # add text in video
+                        img = cv2.putText(img, "Score: " + str(round(final_score, 2)), (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 1, cv2.LINE_AA)
+                        img = cv2.putText(img, "Overall Score: " + str(round(total_score/count, 2)), (10,60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 1, cv2.LINE_AA)
+                        result.write(img)
+                    print('Overall Score: ', total_score/count)
+                    result.release()
+                self.done_process_pose_comparison = True
+
+            # ----------------------CAMERA AND IMAGE----------------------
+            # OPEN SECOND CAMERA WHEN STATE PLAY
+            if self.state == "play":
+                if self.first_time_camera_robot:
+                    # For webcam input
+                    self.cap_robot = cv2.VideoCapture(self.camera_robot_path)
+                    self.cap_robot.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    self.cap_robot.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    self.first_time_camera_robot = False
+
+                success, image = self.cap_robot.read()
+                if not success:
+                    print("Ignoring empty camera frame robot.")
                 else:
-                    iter = len(robot_dir)
+                    if self.state_recording == "start":
+                        print('save video robot')
+                        cv2.imwrite(f'data/image/robot/img_{self.count_video}.jpg', image)
+                    image = cv2.resize(image, (320, 240))
 
-                total_score = 0
-                count = 0
-                for i in tqdm(range(iter), desc='Pose Comparison Process'):
-                    # try:
-                    img = np.zeros([480,640,3])
-                    image_1_points, image1, imagestick1 = human_mediapipe_detection(
-                        human_dir[i], self.pose)
-                    image_2_points, image2, imagestick2 = robot_rcnn_detection(
-                        robot_dir[i], self.robot_model)
-                    
-                    # arrange image in video
-                    img[:240, :320] = image1
-                    img[:240, 320:] = image2
-                    img[240:, :320] = imagestick1
-                    img[240:, 320:] = imagestick2
-                    img = np.uint8(img)
+                    # _, image = cv2.imencode('.jpg', image)
+                    # data = base64.b64encode(image)
 
-                    final_score, score_list = s.compare(np.asarray(
-                        image_1_points), np.asarray(image_2_points))
-                    # print("Total Score : ", final_score)
-                    # print("Score List : ", score_list)
-                    total_score += final_score
-                    count += 1
+                    if self.send_image_to_web:
+                        robot_frame = self.br.cv2_to_imgmsg(image)
+                        self.robot_image_publisher.publish(robot_frame)
+                        # self.sio.emit('robot_image', data)
 
-                    # add text in video
-                    img = cv2.putText(img, "Score: " + str(round(final_score, 2)), (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 1, cv2.LINE_AA)
-                    img = cv2.putText(img, "Overall Score: " + str(round(total_score/count, 2)), (10,60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 1, cv2.LINE_AA)
-                    result.write(img)
-                print('Overall Score: ', total_score/count)
-                result.release()
-            self.done_process_pose_comparison = True
+            # OPEN FIRST CAMERA WHEN STATE PLAY AND RECORDING
+            if self.first_time_camera_human:
+                # For webcam input:
+                self.cap_human = cv2.VideoCapture(self.camera_human_path)
+                self.cap_human.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self.cap_human.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                self.first_time_camera_human = False
 
-        # ----------------------CAMERA AND IMAGE----------------------
-        # OPEN SECOND CAMERA WHEN STATE PLAY
-        if self.state == "play":
-            if self.first_time_camera_robot:
-                # For webcam input
-                self.cap_robot = cv2.VideoCapture(self.camera_robot_path)
-                self.cap_robot.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                self.cap_robot.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                self.first_time_camera_robot = False
-
-            success, image = self.cap_robot.read()
+            success, image = self.cap_human.read()
+            # perform mediapipe pose on image
             if not success:
-                print("Ignoring empty camera frame robot.")
+                print("Ignoring empty camera frame human.")
             else:
-                if self.state_recording == "start":
-                    print('save video robot')
-                    cv2.imwrite(f'data/image/robot/img_{self.count_video}.jpg', image)
+                if self.state == "play" and self.state_recording == "start":
+                    print('save video human')
+                    cv2.imwrite(
+                        f'data/image/human/img_{self.count_video}.jpg', image)
+                    self.count_video += 1
+                # To improve performance, optionally mark the image as not writeable to
+                # pass by reference.
+                image.flags.writeable = False
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                self.image_height, self.image_width, _ = image.shape
+                self.results = self.pose.process(image)
+                # Draw the pose annotation on the image
+                mp_drawing.draw_landmarks(
+                    image,
+                    self.results.pose_landmarks,
+                    mp_pose.POSE_CONNECTIONS,
+                    landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
                 image = cv2.resize(image, (320, 240))
+                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-                _, image = cv2.imencode('.jpg', image)
-                data = base64.b64encode(image)
+                # # encode and send to client
+                # # from image to binary buffer
+                # _, image = cv2.imencode('.jpg', image)
+                # # convert to base64 format
+                # data = base64.b64encode(image)
 
+                # alleviate delay
                 if self.send_image_to_web:
-                    self.sio.emit('robot_image', data)
+                    human_frame = self.br.cv2_to_imgmsg(image)
+                    self.human_image_publisher.publish(human_frame)
+                    # self.sio.emit('human_image', data)
 
-        # OPEN FIRST CAMERA WHEN STATE PLAY AND RECORDING
-        if self.first_time_camera_human:
-            # For webcam input:
-            self.cap_human = cv2.VideoCapture(self.camera_human_path)
-            self.cap_human.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.cap_human.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            self.first_time_camera_human = False
+            # ----------------------ROBOT BEHAVIOUR----------------------
+            if self.state == "recording":
+                # robot mimic human's move when button is started
+                if self.state_recording == "start" and self.results.pose_landmarks:
+                    body_angle = 90 - self.calculate_angle(11, 12)
+                    right_angle = self.calculate_angle(12, 14) + body_angle
+                    bottom_right_angle = self.calculate_angle(
+                        14, 16) - right_angle
+                    left_angle = self.calculate_angle(11, 13, True) - body_angle
+                    bottom_left_angle = self.calculate_angle(
+                        13, 15, True) - left_angle
 
-        success, image = self.cap_human.read()
-        # perform mediapipe pose on image
-        if not success:
-            print("Ignoring empty camera frame human.")
-        else:
-            if self.state == "play" and self.state_recording == "start":
-                print('save video human')
-                cv2.imwrite(
-                    f'data/image/human/img_{self.count_video}.jpg', image)
-                self.count_video += 1
-            # To improve performance, optionally mark the image as not writeable to
-            # pass by reference.
-            image.flags.writeable = False
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            self.image_height, self.image_width, _ = image.shape
-            self.results = self.pose.process(image)
-            # Draw the pose annotation on the image
-            mp_drawing.draw_landmarks(
-                image,
-                self.results.pose_landmarks,
-                mp_pose.POSE_CONNECTIONS,
-                landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
-            image = cv2.resize(image, (320, 240))
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                    # TODO: need to adjust on real robot
+                    # adjust to real robot's state
+                    bottom_left_angle *= -1
+                    left_angle *= -1
 
-            # encode and send to client
-            # from image to binary buffer
-            _, image = cv2.imencode('.jpg', image)
-            # convert to base64 format
-            data = base64.b64encode(image)
+                    # adjust to real robot's offset
+                    right_angle -= 45
+                    left_angle += 45
 
-            # alleviate delay
-            if self.send_image_to_web:
-                self.sio.emit('human_image', data)
+                    right_angle = self.clamp_value(right_angle, -30, 90)
+                    left_angle = self.clamp_value(left_angle, -30, 90)
+                    # TODO: need to adjust on real robot
+                    bottom_right_angle = self.clamp_value(
+                        bottom_right_angle, -10, 120)
+                    bottom_left_angle = self.clamp_value(
+                        bottom_left_angle, -120, 10)
 
-        # ----------------------ROBOT BEHAVIOUR----------------------
-        if self.state == "recording":
-            # robot mimic human's move when button is started
-            if self.state_recording == "start" and self.results.pose_landmarks:
-                body_angle = 90 - self.calculate_angle(11, 12)
-                right_angle = self.calculate_angle(12, 14) + body_angle
-                bottom_right_angle = self.calculate_angle(
-                    14, 16) - right_angle
-                left_angle = self.calculate_angle(11, 13, True) - body_angle
-                bottom_left_angle = self.calculate_angle(
-                    13, 15, True) - left_angle
+                    self.right_angle = self.get_reduced_value(
+                        self.right_angle, right_angle)
+                    self.left_angle = self.get_reduced_value(
+                        self.left_angle, left_angle)
+                    self.bottom_right_angle = self.get_reduced_value(
+                        self.bottom_right_angle, bottom_right_angle)
+                    self.bottom_left_angle = self.get_reduced_value(
+                        self.bottom_left_angle, bottom_left_angle)
 
-                # TODO: need to adjust on real robot
-                # adjust to real robot's state
-                bottom_left_angle *= -1
-                left_angle *= -1
+                    self.set_joint(3, self.right_angle)
+                    self.set_joint(4, self.left_angle)
+                    self.set_joint(5, self.bottom_right_angle)
+                    self.set_joint(6, self.bottom_left_angle)
 
-                # adjust to real robot's offset
-                right_angle -= 45
-                left_angle += 45
+                    set_joints = SetJoints()
+                    set_joints.joints = self.joints
+                    self.joint_publisher.publish(set_joints)
 
-                right_angle = self.clamp_value(right_angle, -30, 90)
-                left_angle = self.clamp_value(left_angle, -30, 90)
-                # TODO: need to adjust on real robot
-                bottom_right_angle = self.clamp_value(
-                    bottom_right_angle, -10, 120)
-                bottom_left_angle = self.clamp_value(
-                    bottom_left_angle, -120, 10)
+                    print('=================================================')
+                    print('body_angle', body_angle)
+                    print('right_angle', right_angle)
+                    print('bottom_right_angle', bottom_right_angle)
+                    print('left_angle', left_angle)
+                    print('bottom_left_angle', bottom_left_angle)
+            elif self.state == "play" and self.state_recording == "start":
+                # run akushon based on json file earlier
+                if not self.run_motion:
+                    print("------RUN PUBLISHER--------")
+                    with open("data/json/motion_fp.json") as file:
+                        data = json.load(file)
+                        data = json.dumps(data)
 
-                self.right_angle = self.get_reduced_value(
-                    self.right_angle, right_angle)
-                self.left_angle = self.get_reduced_value(
-                    self.left_angle, left_angle)
-                self.bottom_right_angle = self.get_reduced_value(
-                    self.bottom_right_angle, bottom_right_angle)
-                self.bottom_left_angle = self.get_reduced_value(
-                    self.bottom_left_angle, bottom_left_angle)
-
-                self.set_joint(3, self.right_angle)
-                self.set_joint(4, self.left_angle)
-                self.set_joint(5, self.bottom_right_angle)
-                self.set_joint(6, self.bottom_left_angle)
-
-                set_joints = SetJoints()
-                set_joints.joints = self.joints
-                self.joint_publisher.publish(set_joints)
-
-                print('=================================================')
-                print('body_angle', body_angle)
-                print('right_angle', right_angle)
-                print('bottom_right_angle', bottom_right_angle)
-                print('left_angle', left_angle)
-                print('bottom_left_angle', bottom_left_angle)
-        elif self.state == "play" and self.state_recording == "start":
-            # run akushon based on json file earlier
-            if not self.once:
-                print("------RUN PUBLISHER--------")
-                with open("data/json/motion_fp.json") as file:
-                    data = json.load(file)
-                    data = json.dumps(data)
-
-                    run_action_msg = RunAction()
-                    run_action_msg.control_type = 1
-                    run_action_msg.action_name = "Motion Final Project"
-                    run_action_msg.json = data
-                    self.run_action_pub.publish(run_action_msg)
-                    self.once = True
-        print("--- %s seconds ---" % (time.time() - start_time))
+                        run_action_msg = RunAction()
+                        run_action_msg.control_type = 1
+                        run_action_msg.action_name = "Motion Final Project"
+                        run_action_msg.json = data
+                        self.run_action_pub.publish(run_action_msg)
+                        self.run_motion = True
+            print("--- %s seconds ---" % (time.time() - start_time))
 
     def init_joints(self):
         for i in range(3, 7):
